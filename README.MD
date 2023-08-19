@@ -24,7 +24,7 @@ git clone https://gitee.com/lch0821/WeChatRobot.git
 # 升级 pip
 python -m pip install -U pip
 # 安装必要依赖
-pip install -r requirements.txt
+pip install -i https://pypi.mirrors.ustc.edu.cn/simple/ -r requirements.txt
 ```
 
 4. 运行
