@@ -4,14 +4,16 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
+from queue import Empty
+from threading import Thread
 
 from wcferry import Wcf, WxMsg
 
 from configuration import Config
 from func_chatgpt import ChatGPT
 from func_chengyu import cy
-from func_http import Http
 from func_news import News
+from func_tigerbot import TigerBot
 from job_mgmt import Job
 
 
@@ -25,10 +27,14 @@ class Robot(Job):
         self.LOG = logging.getLogger("Robot")
         self.wxid = self.wcf.get_self_wxid()
         self.allContacts = self.getAllContacts()
-        self.chat = None
-        chatgpt = self.config.CHATGPT
-        if chatgpt:
-            self.chat = ChatGPT(chatgpt.get("key"), chatgpt.get("api"), chatgpt.get("proxy"), chatgpt.get("prompt"))
+
+        if self.config.TIGERBOT:
+            self.chat = TigerBot(self.config.TIGERBOT)
+        elif self.config.CHATGPT:
+            cgpt = self.config.CHATGPT
+            self.chat = ChatGPT(cgpt.get("key"), cgpt.get("api"), cgpt.get("proxy"), cgpt.get("prompt"))
+        else:
+            self.chat = None
 
     def toAt(self, msg: WxMsg) -> bool:
         """处理被 @ 消息
@@ -135,6 +141,21 @@ class Robot(Job):
     def enableRecvMsg(self) -> None:
         self.wcf.enable_recv_msg(self.onMsg)
 
+    def enableReceivingMsg(self) -> None:
+        def innerProcessMsg(wcf: Wcf):
+            while wcf.is_receiving_msg():
+                try:
+                    msg = wcf.get_msg()
+                    self.LOG.info(msg)
+                    self.processMsg(msg)
+                except Empty:
+                    continue  # Empty message
+                except Exception as e:
+                    self.LOG.error(f"Receiving message error: {e}")
+
+        self.wcf.enable_receiving_msg()
+        Thread(target=innerProcessMsg, name="GetMessage", args=(self.wcf,), daemon=True).start()
+
     def sendTextMsg(self, msg: str, receiver: str, at_list: str = "") -> None:
         """ 发送消息
         :param msg: 消息字符串
@@ -178,7 +199,7 @@ class Robot(Job):
             xml = ET.fromstring(msg.content)
             v3 = xml.attrib["encryptusername"]
             v4 = xml.attrib["ticket"]
-            scene = xml.attrib["scene"]
+            scene = int(xml.attrib["scene"])
             self.wcf.accept_new_friend(v3, v4, scene)
 
         except Exception as e:
@@ -190,19 +211,6 @@ class Robot(Job):
             # 添加了好友，更新好友列表
             self.allContacts[msg.sender] = nickName[0]
             self.sendTextMsg(f"Hi {nickName[0]}，我自动通过了你的好友请求。", msg.sender)
-
-    def enableHTTP(self) -> None:
-        """暴露 HTTP 发送消息接口供外部调用，不配置则忽略"""
-        c = self.config.HTTP
-        if not c:
-            return
-
-        home = "https://github.com/lich0821/WeChatFerry"
-        http = Http(wcf=self.wcf,
-                    title="API for send text",
-                    description=f"Github: <a href='{home}'>WeChatFerry</a>",)
-        Http.start(http, c["host"], c["port"])
-        self.LOG.info(f"HTTP listening on http://{c['host']}:{c['port']}")
 
     def newsReport(self) -> None:
         receivers = self.config.NEWS

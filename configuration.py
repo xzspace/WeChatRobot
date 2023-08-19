@@ -29,5 +29,5 @@ class Config(object):
         logging.config.dictConfig(yconfig["logging"])
         self.GROUPS = yconfig["groups"]["enable"]
         self.CHATGPT = yconfig.get("chatgpt")
-        self.HTTP = yconfig.get("http")
         self.NEWS = yconfig["news"]["receivers"]
+        self.TIGERBOT = yconfig.get("tigerbot")
